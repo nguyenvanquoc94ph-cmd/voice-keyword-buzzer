@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Host Panel</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      display: flex; justify-content: center; align-items: flex-start;
+      min-height: 100vh; padding: 40px 20px;
+    }
+    .container {
+      background: #1e293b; border-radius: 16px; padding: 32px;
+      width: 100%; max-width: 480px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    h1 { font-size: 20px; margin-bottom: 24px; color: #60a5fa; text-align: center; }
+    .section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #334155; }
+    .section:last-child { border-bottom: none; }
+    .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 8px; }
+    .room-id { font-size: 32px; font-weight: 700; color: #fbbf24; letter-spacing: 0.1em; text-align: center; }
+    .status {
+      display: inline-block; padding: 6px 16px; border-radius: 20px;
+      font-size: 14px; font-weight: 600;
+    }
+    .status.IDLE { background: #475569; color: #cbd5e1; }
+    .status.STARTED { background: #16a34a; color: #fff; }
+    .status.STOPPED { background: #dc2626; color: #fff; }
+    
+    textarea {
+      width: 100%; min-height: 100px; background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical;
+    }
+    textarea:focus { outline: none; border-color: #60a5fa; }
+    
+    .btn-row { display: flex; gap: 12px; margin-top: 16px; }
+    button {
+      flex: 1; padding: 12px; border: none; border-radius: 8px; font-size: 14px;
+      font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-start { background: #16a34a; color: white; }
+    .btn-start:hover { background: #15803d; }
+    .btn-start:disabled { background: #334155; cursor: not-allowed; }
+    
+    .btn-stop { background: #dc2626; color: white; }
+    .btn-stop:hover { background: #b91c1c; }
+    .btn-stop:disabled { background: #334155; cursor: not-allowed; }
+    
+    .btn-reset { background: #475569; color: white; }
+    .btn-reset:hover { background: #334155; }
+    
+    .results { background: #0f172a; border-radius: 8px; padding: 16px; min-height: 60px; }
+    .result-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 0;
+      border-bottom: 1px solid #1e293b;
+    }
+    .result-item:last-child { border-bottom: none; }
+    .result-rank {
+      width: 28px; height: 28px; border-radius: 50%; background: #334155;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+    }
+    .result-rank.first { background: #fbbf24; color: #0f172a; }
+    .result-rank.second { background: #94a3b8; color: #0f172a; }
+    .result-rank.third { background: #b45309; color: #fff; }
+    .result-keyword { font-size: 16px; font-weight: 600; }
+    
+    .error { color: #f87171; font-size: 13px; margin-top: 8px; }
+    .hint { color: #64748b; font-size: 12px; margin-top: 4px; }
+    
+    .player-link {
+      background: #0f172a; padding: 12px; border-radius: 8px;
+      font-size: 13px; word-break: break-all; color: #60a5fa;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎙️ HOST PANEL</h1>
+    
+    <div class="section">
+      <div class="label">Room ID</div>
+      <div class="room-id" id="roomId">---</div>
+      <div class="hint">Player vào: <span id="playerUrl" class="player-link"></span></div>
+    </div>
+    
+    <div class="section">
+      <div class="label">Trạng thái</div>
+      <span class="status IDLE" id="statusBadge">IDLE</span>
+    </div>
+    
+    <div class="section">
+      <div class="label">Keywords (mỗi dòng 1 từ)</div>
+      <textarea id="keywordsInput" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta"></textarea>
+      <div class="hint">Chỉ sửa được khi đang IDLE</div>
+    </div>
+    
+    <div class="section">
+      <div class="btn-row">
+        <button class="btn-start" id="btnStart" onclick="startGame()">▶ START</button>
+        <button class="btn-stop" id="btnStop" onclick="stopGame()" disabled>⏹ STOP</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn-reset" onclick="resetGame()">↺ RESET</button>
+      </div>
+      <div class="error" id="errorMsg"></div>
+    </div>
+    
+    <div class="section">
+      <div class="label">Kết quả realtime</div>
+      <div class="results" id="results">
+        <div style="color:#64748b; font-size:14px;">Chưa có dữ liệu</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let currentState = 'IDLE';
+    
+    // Parse URL
+    const pathParts = window.location.pathname.split('/');
+    const roomId = pathParts[pathParts.length - 1];
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    
+    document.getElementById('roomId').textContent = roomId;
+    document.getElementById('playerUrl').textContent = `${window.location.origin}/room/${roomId}`;
+    
+    // Join as host
+    socket.emit('join-host', { roomId, token });
+    
+    // Events
+    socket.on('joined', (data) => {
+      currentState = data.state;
+      updateUI();
+    });
+    
+    socket.on('state-changed', (state) => {
+      currentState = state;
+      updateUI();
+    });
+    
+    socket.on('keywords-updated', (keywords) => {
+      document.getElementById('keywordsInput').value = keywords.join('\n');
+    });
+    
+    socket.on('result-update', (results) => {
+      renderResults(results);
+    });
+    
+    socket.on('game-ended', (results) => {
+      renderResults(results);
+    });
+    
+    socket.on('error-msg', (msg) => {
+      const el = document.getElementById('errorMsg');
+      el.textContent = msg;
+      setTimeout(() => el.textContent = '', 3000);
+    });
+    
+    function updateUI() {
+      const badge = document.getElementById('statusBadge');
+      badge.textContent = currentState;
+      badge.className = 'status ' + currentState;
+      
+      const btnStart = document.getElementById('btnStart');
+      const btnStop = document.getElementById('btnStop');
+      const input = document.getElementById('keywordsInput');
+      
+      if (currentState === 'IDLE') {
+        btnStart.disabled = false;
+        btnStop.disabled = true;
+        input.disabled = false;
+      } else if (currentState === 'STARTED') {
+        btnStart.disabled = true;
+        btnStop.disabled = false;
+        input.disabled = true;
+      } else if (currentState === 'STOPPED') {
+        btnStart.disabled = true;
+        btnStop.disabled = true;
+        input.disabled = true;
+      }
+    }
+    
+    function renderResults(results) {
+      const container = document.getElementById('results');
+      if (results.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-size:14px;">Chưa có dữ liệu</div>';
+        return;
+      }
+      container.innerHTML = results.map((r, i) => {
+        let rankClass = '';
+        if (i === 0) rankClass = 'first';
+        else if (i === 1) rankClass = 'second';
+        else if (i === 2) rankClass = 'third';
+        return `
+          <div class="result-item">
+            <div class="result-rank ${rankClass}">${i + 1}</div>
+            <div class="result-keyword">${r.keyword}</div>
+          </div>
+        `;
+      }).join('');
+    }
+    
+    function startGame() {
+      const keywords = document.getElementById('keywordsInput').value
+        .split('\n').map(k => k.trim()).filter(k => k);
+      if (keywords.length === 0) {
+        alert('Vui lòng nhập ít nhất 1 keyword');
+        return;
+      }
+      // Cập nhật keywords trước khi start
+      socket.emit('update-keywords', { roomId, keywords });
+      socket.emit('start', { roomId });
+    }
+    
+    function stopGame() {
+      socket.emit('stop', { roomId });
+    }
+    
+    function resetGame() {
+      socket.emit('reset', { roomId });
+    }
+    
+    // Auto-save keywords khi đang IDLE
+    document.getElementById('keywordsInput').addEventListener('input', () => {
+      if (currentState !== 'IDLE') return;
+      const keywords = document.getElementById('keywordsInput').value
+        .split('\n').map(k => k.trim()).filter(k => k);
+      socket.emit('update-keywords', { roomId, keywords });
+    });
+  </script>
+</body>
+</html>
