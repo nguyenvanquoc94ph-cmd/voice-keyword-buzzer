@@ -74,6 +74,13 @@
     
     .error { color: #f87171; font-size: 13px; margin-top: 8px; text-align: center; }
     .hint { color: #64748b; font-size: 12px; margin-top: 4px; text-align: center; }
+    
+    .auto-mic-hint {
+      background: #0f172a; border: 1px solid #16a34a; border-radius: 8px;
+      padding: 12px; margin-top: 12px; font-size: 13px; color: #86efac;
+      display: none;
+    }
+    .auto-mic-hint.show { display: block; }
   </style>
 </head>
 <body>
@@ -105,6 +112,9 @@
       <div class="transcript" id="transcript" style="margin-top:12px;">
         Transcript sẽ hiển thị ở đây...
       </div>
+      <div class="auto-mic-hint" id="autoMicHint">
+        🎤 Mic đã tự động bật. Hãy hô keyword!
+      </div>
     </div>
     
     <div class="section" id="resultsSection" style="display:none;">
@@ -129,7 +139,6 @@
     
     socket.emit('join-player', { roomId });
     
-    // ===== Web Speech API =====
     function initSpeechRecognition() {
       const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
       if (!SpeechRecognition) {
@@ -138,7 +147,7 @@
       }
       
       const rec = new SpeechRecognition();
-      rec.lang = 'vi-VN'; // Có thể đổi thành 'en-US' nếu keyword là tiếng Anh
+      rec.lang = 'en-US';
       rec.continuous = true;
       rec.interimResults = true;
       
@@ -161,7 +170,6 @@
         
         if (finalTranscript) {
           document.getElementById('transcript').textContent = '✓ ' + finalTranscript;
-          // Gửi lên server
           socket.emit('speech-result', { roomId, transcript: finalTranscript });
         }
       };
@@ -174,7 +182,6 @@
       };
       
       rec.onend = () => {
-        // Tự động restart nếu đang STARTED và chưa chủ động tắt
         if (isListening && currentState === 'STARTED') {
           try { recognition.start(); } catch(e) {}
         }
@@ -183,24 +190,38 @@
       return rec;
     }
     
-    function toggleMic() {
+    function startMic() {
       if (!recognition) {
         recognition = initSpeechRecognition();
-        if (!recognition) return;
+        if (!recognition) return false;
       }
-      
+      try {
+        recognition.start();
+        isListening = true;
+        updateMicBtn(true);
+        return true;
+      } catch (e) {
+        console.error('Start mic failed:', e);
+        return false;
+      }
+    }
+    
+    function stopMic() {
+      if (!recognition) return;
+      isListening = false;
+      try { recognition.stop(); } catch(e) {}
+      updateMicBtn(false);
+    }
+    
+    function toggleMic() {
       if (isListening) {
-        isListening = false;
-        try { recognition.stop(); } catch(e) {}
-        updateMicBtn(false);
+        stopMic();
       } else {
         if (currentState !== 'STARTED') {
           alert('Chỉ bật mic khi Host đã START');
           return;
         }
-        isListening = true;
-        recognition.start();
-        updateMicBtn(true);
+        startMic();
       }
     }
     
@@ -215,7 +236,12 @@
       }
     }
     
-    // ===== Socket Events =====
+    function showAutoMicHint() {
+      const hint = document.getElementById('autoMicHint');
+      hint.classList.add('show');
+      setTimeout(() => hint.classList.remove('show'), 4000);
+    }
+    
     socket.on('joined', (data) => {
       currentState = data.state;
       updateUI();
@@ -230,9 +256,13 @@
         document.getElementById('results').innerHTML = '';
         foundKeywords.clear();
         renderKeywords();
-        // Tự động bật mic nếu user đã từng bật trước đó (optional)
+        // Tự động bật mic
+        const success = startMic();
+        if (success) {
+          showAutoMicHint();
+        }
       } else if (state === 'STOPPED') {
-        if (isListening) toggleMic();
+        stopMic();
       }
     });
     
@@ -283,7 +313,7 @@
         badge.textContent = 'Waiting for START...';
         badge.className = 'status IDLE';
         btn.disabled = true;
-        if (isListening) toggleMic();
+        stopMic();
       } else if (currentState === 'STARTED') {
         badge.textContent = 'Listening...';
         badge.className = 'status STARTED';
@@ -292,7 +322,7 @@
         badge.textContent = 'Game Ended';
         badge.className = 'status STOPPED';
         btn.disabled = true;
-        if (isListening) toggleMic();
+        stopMic();
       }
     }
     
