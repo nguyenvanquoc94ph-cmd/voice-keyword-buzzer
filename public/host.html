@@ -71,12 +71,18 @@
     
     .link-box {
       background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 8px;
-      max-width: 100%; overflow: hidden;
+      max-width: 100%; overflow: hidden; display: flex; align-items: center; gap: 8px;
     }
     .player-link {
       font-size: 13px; color: #60a5fa; line-height: 1.5;
-      word-break: break-all; display: block;
+      word-break: break-all; display: block; flex: 1;
     }
+    .btn-copy {
+      flex: none; width: auto; padding: 6px 12px; background: #334155;
+      color: #e2e8f0; font-size: 12px; border-radius: 6px;
+    }
+    .btn-copy:hover { background: #475569; }
+    .btn-copy.copied { background: #16a34a; color: white; }
   </style>
 </head>
 <body>
@@ -89,6 +95,7 @@
       <div class="hint">Player vào:</div>
       <div class="link-box">
         <span id="playerUrl" class="player-link"></span>
+        <button class="btn-copy" id="btnCopy" onclick="copyLink()">📋 Copy</button>
       </div>
     </div>
     
@@ -126,6 +133,7 @@
   <script>
     const socket = io();
     let currentState = 'IDLE';
+    let playerUrl = '';
     
     const pathParts = window.location.pathname.split('/');
     const roomId = pathParts[pathParts.length - 1];
@@ -133,7 +141,31 @@
     const token = urlParams.get('token');
     
     document.getElementById('roomId').textContent = roomId;
-    document.getElementById('playerUrl').textContent = window.location.origin + '/room/' + roomId;
+    playerUrl = window.location.origin + '/room/' + roomId;
+    document.getElementById('playerUrl').textContent = playerUrl;
+    
+    function copyLink() {
+      navigator.clipboard.writeText(playerUrl).then(() => {
+        const btn = document.getElementById('btnCopy');
+        btn.textContent = '✅ Đã copy';
+        btn.classList.add('copied');
+        setTimeout(() => {
+          btn.textContent = '📋 Copy';
+          btn.classList.remove('copied');
+        }, 2000);
+      }).catch(() => {
+        // Fallback cho trình duyệt cũ
+        const ta = document.createElement('textarea');
+        ta.value = playerUrl;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        const btn = document.getElementById('btnCopy');
+        btn.textContent = '✅ Đã copy';
+        setTimeout(() => btn.textContent = '📋 Copy', 2000);
+      });
+    }
     
     socket.emit('join-host', { roomId, token });
     
