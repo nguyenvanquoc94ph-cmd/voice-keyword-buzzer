@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Player - Join Room</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0f172a; color: #e2e8f0;
+      display: flex; justify-content: center; align-items: flex-start;
+      min-height: 100vh; padding: 40px 20px;
+    }
+    .container {
+      background: #1e293b; border-radius: 16px; padding: 32px;
+      width: 100%; max-width: 480px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+    }
+    h1 { font-size: 20px; margin-bottom: 24px; color: #60a5fa; text-align: center; }
+    .section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #334155; }
+    .section:last-child { border-bottom: none; }
+    .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 8px; }
+    .room-id { font-size: 32px; font-weight: 700; color: #fbbf24; letter-spacing: 0.1em; text-align: center; }
+    
+    .status {
+      display: inline-block; padding: 6px 16px; border-radius: 20px;
+      font-size: 14px; font-weight: 600;
+    }
+    .status.IDLE { background: #475569; color: #cbd5e1; }
+    .status.STARTED { background: #16a34a; color: #fff; }
+    .status.STOPPED { background: #dc2626; color: #fff; }
+    
+    .mic-btn {
+      width: 100%; padding: 16px; border: none; border-radius: 12px;
+      font-size: 16px; font-weight: 700; cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .mic-btn.inactive { background: #334155; color: #94a3b8; }
+    .mic-btn.active { background: #dc2626; color: white; animation: pulse 1.5s infinite; }
+    .mic-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.4); }
+      50% { box-shadow: 0 0 0 12px rgba(220, 38, 38, 0); }
+    }
+    
+    .keywords { display: flex; flex-wrap: wrap; gap: 8px; }
+    .keyword-tag {
+      background: #0f172a; padding: 8px 16px; border-radius: 20px;
+      font-size: 14px; border: 1px solid #334155;
+    }
+    .keyword-tag.found { background: #16a34a; border-color: #16a34a; color: white; }
+    
+    .transcript {
+      background: #0f172a; border-radius: 8px; padding: 12px; min-height: 48px;
+      font-size: 14px; color: #94a3b8; font-style: italic;
+    }
+    
+    .results { background: #0f172a; border-radius: 8px; padding: 16px; }
+    .result-item {
+      display: flex; align-items: center; gap: 12px; padding: 10px 0;
+      border-bottom: 1px solid #1e293b;
+    }
+    .result-item:last-child { border-bottom: none; }
+    .result-rank {
+      width: 28px; height: 28px; border-radius: 50%; background: #334155;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 12px; font-weight: 700;
+    }
+    .result-rank.first { background: #fbbf24; color: #0f172a; }
+    .result-rank.second { background: #94a3b8; color: #0f172a; }
+    .result-rank.third { background: #b45309; color: #fff; }
+    .result-keyword { font-size: 16px; font-weight: 600; }
+    
+    .error { color: #f87171; font-size: 13px; margin-top: 8px; text-align: center; }
+    .hint { color: #64748b; font-size: 12px; margin-top: 4px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎮 PLAYER</h1>
+    
+    <div class="section">
+      <div class="label">Room</div>
+      <div class="room-id" id="roomId">---</div>
+    </div>
+    
+    <div class="section">
+      <div class="label">Trạng thái</div>
+      <span class="status IDLE" id="statusBadge">Waiting for START...</span>
+    </div>
+    
+    <div class="section">
+      <div class="label">Keywords</div>
+      <div class="keywords" id="keywordsList">
+        <div style="color:#64748b; font-size:14px;">Đang chờ Host cấu hình...</div>
+      </div>
+    </div>
+    
+    <div class="section">
+      <button class="mic-btn inactive" id="micBtn" onclick="toggleMic()" disabled>
+        🎤 Bật Microphone
+      </button>
+      <div class="hint">Mic chỉ hoạt động khi Host đã START</div>
+      <div class="transcript" id="transcript" style="margin-top:12px;">
+        Transcript sẽ hiển thị ở đây...
+      </div>
+    </div>
+    
+    <div class="section" id="resultsSection" style="display:none;">
+      <div class="label">KẾT QUẢ</div>
+      <div class="results" id="results"></div>
+    </div>
+    
+    <div class="error" id="errorMsg"></div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    const socket = io();
+    let currentState = 'IDLE';
+    let recognition = null;
+    let isListening = false;
+    let foundKeywords = new Set();
+    
+    const pathParts = window.location.pathname.split('/');
+    const roomId = pathParts[pathParts.length - 1];
+    document.getElementById('roomId').textContent = roomId;
+    
+    socket.emit('join-player', { roomId });
+    
+    // ===== Web Speech API =====
+    function initSpeechRecognition() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert('Trình duyệt không hỗ trợ Web Speech API. Vui lòng dùng Chrome/Edge.');
+        return null;
+      }
+      
+      const rec = new SpeechRecognition();
+      rec.lang = 'vi-VN'; // Có thể đổi thành 'en-US' nếu keyword là tiếng Anh
+      rec.continuous = true;
+      rec.interimResults = true;
+      
+      rec.onresult = (event) => {
+        let finalTranscript = '';
+        let interimTranscript = '';
+        
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const transcript = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalTranscript += transcript;
+          } else {
+            interimTranscript += transcript;
+          }
+        }
+        
+        if (interimTranscript) {
+          document.getElementById('transcript').textContent = '🎧 ' + interimTranscript;
+        }
+        
+        if (finalTranscript) {
+          document.getElementById('transcript').textContent = '✓ ' + finalTranscript;
+          // Gửi lên server
+          socket.emit('speech-result', { roomId, transcript: finalTranscript });
+        }
+      };
+      
+      rec.onerror = (event) => {
+        console.error('Speech error:', event.error);
+        if (event.error === 'not-allowed') {
+          document.getElementById('errorMsg').textContent = 'Vui lòng cho phép microphone';
+        }
+      };
+      
+      rec.onend = () => {
+        // Tự động restart nếu đang STARTED và chưa chủ động tắt
+        if (isListening && currentState === 'STARTED') {
+          try { recognition.start(); } catch(e) {}
+        }
+      };
+      
+      return rec;
+    }
+    
+    function toggleMic() {
+      if (!recognition) {
+        recognition = initSpeechRecognition();
+        if (!recognition) return;
+      }
+      
+      if (isListening) {
+        isListening = false;
+        try { recognition.stop(); } catch(e) {}
+        updateMicBtn(false);
+      } else {
+        if (currentState !== 'STARTED') {
+          alert('Chỉ bật mic khi Host đã START');
+          return;
+        }
+        isListening = true;
+        recognition.start();
+        updateMicBtn(true);
+      }
+    }
+    
+    function updateMicBtn(active) {
+      const btn = document.getElementById('micBtn');
+      if (active) {
+        btn.className = 'mic-btn active';
+        btn.innerHTML = '🔴 Đang nghe... (Click để tắt)';
+      } else {
+        btn.className = 'mic-btn inactive';
+        btn.innerHTML = '🎤 Bật Microphone';
+      }
+    }
+    
+    // ===== Socket Events =====
+    socket.on('joined', (data) => {
+      currentState = data.state;
+      updateUI();
+    });
+    
+    socket.on('state-changed', (state) => {
+      currentState = state;
+      updateUI();
+      
+      if (state === 'STARTED') {
+        document.getElementById('resultsSection').style.display = 'none';
+        document.getElementById('results').innerHTML = '';
+        foundKeywords.clear();
+        renderKeywords();
+        // Tự động bật mic nếu user đã từng bật trước đó (optional)
+      } else if (state === 'STOPPED') {
+        if (isListening) toggleMic();
+      }
+    });
+    
+    socket.on('keywords-updated', (keywords) => {
+      renderKeywords(keywords);
+    });
+    
+    socket.on('result-update', (results) => {
+      results.forEach(r => foundKeywords.add(r.keyword.toLowerCase()));
+      renderKeywords();
+    });
+    
+    socket.on('game-ended', (results) => {
+      const section = document.getElementById('resultsSection');
+      section.style.display = 'block';
+      const container = document.getElementById('results');
+      
+      if (results.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-size:14px;">Không có keyword nào được tìm thấy</div>';
+        return;
+      }
+      
+      container.innerHTML = results.map((r, i) => {
+        let rankClass = '';
+        if (i === 0) rankClass = 'first';
+        else if (i === 1) rankClass = 'second';
+        else if (i === 2) rankClass = 'third';
+        return `
+          <div class="result-item">
+            <div class="result-rank ${rankClass}">${i + 1}</div>
+            <div class="result-keyword">${r.keyword}</div>
+          </div>
+        `;
+      }).join('');
+    });
+    
+    socket.on('error-msg', (msg) => {
+      const el = document.getElementById('errorMsg');
+      el.textContent = msg;
+      setTimeout(() => el.textContent = '', 3000);
+    });
+    
+    function updateUI() {
+      const badge = document.getElementById('statusBadge');
+      const btn = document.getElementById('micBtn');
+      
+      if (currentState === 'IDLE') {
+        badge.textContent = 'Waiting for START...';
+        badge.className = 'status IDLE';
+        btn.disabled = true;
+        if (isListening) toggleMic();
+      } else if (currentState === 'STARTED') {
+        badge.textContent = 'Listening...';
+        badge.className = 'status STARTED';
+        btn.disabled = false;
+      } else if (currentState === 'STOPPED') {
+        badge.textContent = 'Game Ended';
+        badge.className = 'status STOPPED';
+        btn.disabled = true;
+        if (isListening) toggleMic();
+      }
+    }
+    
+    let currentKeywords = [];
+    function renderKeywords(keywords) {
+      if (keywords) currentKeywords = keywords;
+      const container = document.getElementById('keywordsList');
+      if (currentKeywords.length === 0) {
+        container.innerHTML = '<div style="color:#64748b; font-size:14px;">Đang chờ Host cấu hình...</div>';
+        return;
+      }
+      container.innerHTML = currentKeywords.map(k => {
+        const found = foundKeywords.has(k.toLowerCase());
+        return `<div class="keyword-tag ${found ? 'found' : ''}">${k}</div>`;
+      }).join('');
+    }
+  </script>
+</body>
+</html>
