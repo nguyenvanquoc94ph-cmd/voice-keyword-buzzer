@@ -15,7 +15,6 @@
     .container {
       background: #1e293b; border-radius: 16px; padding: 32px;
       width: 100%; max-width: 480px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-      min-width: 0; /* FIX: tránh child tràn ra ngoài */
     }
     h1 { font-size: 20px; margin-bottom: 24px; color: #60a5fa; text-align: center; }
     .section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #334155; }
@@ -31,11 +30,11 @@
     .status.STOPPED { background: #dc2626; color: #fff; }
     
     textarea {
-      width: 100%; min-height: 100px; background: #0f172a; border: 1px solid #334155;
+      width: 100%; min-height: 120px; background: #0f172a; border: 1px solid #334155;
       border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical;
-      white-space: pre-wrap;        /* FIX: cho phép xuống dòng */
-      overflow-wrap: break-word;    /* FIX: từ dài tự xuống dòng */
-      tab-size: 4;
+      white-space: pre-wrap !important;
+      overflow-wrap: break-word !important;
+      line-height: 1.6;
     }
     textarea:focus { outline: none; border-color: #60a5fa; }
     
@@ -47,11 +46,9 @@
     .btn-start { background: #16a34a; color: white; }
     .btn-start:hover { background: #15803d; }
     .btn-start:disabled { background: #334155; cursor: not-allowed; }
-    
     .btn-stop { background: #dc2626; color: white; }
     .btn-stop:hover { background: #b91c1c; }
     .btn-stop:disabled { background: #334155; cursor: not-allowed; }
-    
     .btn-reset { background: #475569; color: white; }
     .btn-reset:hover { background: #334155; }
     
@@ -76,15 +73,9 @@
     
     .player-link-box {
       background: #0f172a; padding: 12px; border-radius: 8px;
-      margin-top: 8px;
+      margin-top: 8px; overflow-wrap: anywhere; word-break: break-all;
     }
-    .player-link {
-      font-size: 13px; color: #60a5fa;
-      word-break: break-all;           /* FIX: cắt link dài */
-      overflow-wrap: anywhere;         /* FIX: đảm bảo không tràn */
-      display: block;
-      line-height: 1.5;
-    }
+    .player-link { font-size: 13px; color: #60a5fa; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -107,7 +98,7 @@
     
     <div class="section">
       <div class="label">Keywords (mỗi dòng 1 từ)</div>
-      <textarea id="keywordsInput" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta"></textarea>
+      <textarea id="keywordsInput" rows="5" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta" spellcheck="false"></textarea>
       <div class="hint">Nhấn Enter để xuống dòng · Chỉ sửa được khi đang IDLE</div>
     </div>
     
@@ -141,7 +132,7 @@
     const token = urlParams.get('token');
     
     document.getElementById('roomId').textContent = roomId;
-    document.getElementById('playerUrl').textContent = `${window.location.origin}/room/${roomId}`;
+    document.getElementById('playerUrl').textContent = window.location.origin + '/room/' + roomId;
     
     socket.emit('join-host', { roomId, token });
     
