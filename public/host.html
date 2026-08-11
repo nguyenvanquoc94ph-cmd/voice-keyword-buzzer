@@ -30,11 +30,8 @@
     .status.STOPPED { background: #dc2626; color: #fff; }
     
     textarea {
-      width: 100%; min-height: 120px; background: #0f172a; border: 1px solid #334155;
+      width: 100%; height: 120px; background: #0f172a; border: 1px solid #334155;
       border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical;
-      white-space: pre-wrap !important;
-      overflow-wrap: break-word !important;
-      line-height: 1.6;
     }
     textarea:focus { outline: none; border-color: #60a5fa; }
     
@@ -71,11 +68,14 @@
     .error { color: #f87171; font-size: 13px; margin-top: 8px; }
     .hint { color: #64748b; font-size: 12px; margin-top: 4px; }
     
-    .player-link-box {
-      background: #0f172a; padding: 12px; border-radius: 8px;
-      margin-top: 8px; overflow-wrap: anywhere; word-break: break-all;
+    .link-box {
+      background: #0f172a; padding: 12px; border-radius: 8px; margin-top: 8px;
+      max-width: 100%; overflow: hidden;
     }
-    .player-link { font-size: 13px; color: #60a5fa; line-height: 1.5; }
+    .player-link {
+      font-size: 13px; color: #60a5fa; line-height: 1.5;
+      word-break: break-all; display: block;
+    }
   </style>
 </head>
 <body>
@@ -86,7 +86,7 @@
       <div class="label">Room ID</div>
       <div class="room-id" id="roomId">---</div>
       <div class="hint">Player vào:</div>
-      <div class="player-link-box">
+      <div class="link-box">
         <span id="playerUrl" class="player-link"></span>
       </div>
     </div>
@@ -98,7 +98,7 @@
     
     <div class="section">
       <div class="label">Keywords (mỗi dòng 1 từ)</div>
-      <textarea id="keywordsInput" rows="5" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta" spellcheck="false"></textarea>
+      <textarea id="keywordsInput" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta" spellcheck="false"></textarea>
       <div class="hint">Nhấn Enter để xuống dòng · Chỉ sửa được khi đang IDLE</div>
     </div>
     
@@ -134,6 +134,20 @@
     document.getElementById('roomId').textContent = roomId;
     document.getElementById('playerUrl').textContent = window.location.origin + '/room/' + roomId;
     
+    // FIX: Ép Enter xuống dòng trong textarea
+    const kwInput = document.getElementById('keywordsInput');
+    kwInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const start = this.selectionStart;
+        const end = this.selectionEnd;
+        this.value = this.value.substring(0, start) + '\n' + this.value.substring(end);
+        this.selectionStart = this.selectionEnd = start + 1;
+        // Kích hoạt input event để cập nhật
+        this.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+    });
+    
     socket.emit('join-host', { roomId, token });
     
     socket.on('joined', (data) => {
@@ -147,7 +161,7 @@
     });
     
     socket.on('keywords-updated', (keywords) => {
-      document.getElementById('keywordsInput').value = keywords.join('\n');
+      kwInput.value = keywords.join('\n');
     });
     
     socket.on('result-update', (results) => {
@@ -171,20 +185,19 @@
       
       const btnStart = document.getElementById('btnStart');
       const btnStop = document.getElementById('btnStop');
-      const input = document.getElementById('keywordsInput');
       
       if (currentState === 'IDLE') {
         btnStart.disabled = false;
         btnStop.disabled = true;
-        input.disabled = false;
+        kwInput.disabled = false;
       } else if (currentState === 'STARTED') {
         btnStart.disabled = true;
         btnStop.disabled = false;
-        input.disabled = true;
+        kwInput.disabled = true;
       } else if (currentState === 'STOPPED') {
         btnStart.disabled = true;
         btnStop.disabled = true;
-        input.disabled = true;
+        kwInput.disabled = true;
       }
     }
     
@@ -209,8 +222,7 @@
     }
     
     function startGame() {
-      const keywords = document.getElementById('keywordsInput').value
-        .split('\n').map(k => k.trim()).filter(k => k);
+      const keywords = kwInput.value.split('\n').map(k => k.trim()).filter(k => k);
       if (keywords.length === 0) {
         alert('Vui lòng nhập ít nhất 1 keyword');
         return;
@@ -227,10 +239,9 @@
       socket.emit('reset', { roomId });
     }
     
-    document.getElementById('keywordsInput').addEventListener('input', () => {
+    kwInput.addEventListener('input', () => {
       if (currentState !== 'IDLE') return;
-      const keywords = document.getElementById('keywordsInput').value
-        .split('\n').map(k => k.trim()).filter(k => k);
+      const keywords = kwInput.value.split('\n').map(k => k.trim()).filter(k => k);
       socket.emit('update-keywords', { roomId, keywords });
     });
   </script>
