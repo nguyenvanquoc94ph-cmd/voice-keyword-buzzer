@@ -15,6 +15,7 @@
     .container {
       background: #1e293b; border-radius: 16px; padding: 32px;
       width: 100%; max-width: 480px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+      min-width: 0; /* FIX: tránh child tràn ra ngoài */
     }
     h1 { font-size: 20px; margin-bottom: 24px; color: #60a5fa; text-align: center; }
     .section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid #334155; }
@@ -32,6 +33,9 @@
     textarea {
       width: 100%; min-height: 100px; background: #0f172a; border: 1px solid #334155;
       border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical;
+      white-space: pre-wrap;        /* FIX: cho phép xuống dòng */
+      overflow-wrap: break-word;    /* FIX: từ dài tự xuống dòng */
+      tab-size: 4;
     }
     textarea:focus { outline: none; border-color: #60a5fa; }
     
@@ -70,9 +74,16 @@
     .error { color: #f87171; font-size: 13px; margin-top: 8px; }
     .hint { color: #64748b; font-size: 12px; margin-top: 4px; }
     
-    .player-link {
+    .player-link-box {
       background: #0f172a; padding: 12px; border-radius: 8px;
-      font-size: 13px; word-break: break-all; color: #60a5fa;
+      margin-top: 8px;
+    }
+    .player-link {
+      font-size: 13px; color: #60a5fa;
+      word-break: break-all;           /* FIX: cắt link dài */
+      overflow-wrap: anywhere;         /* FIX: đảm bảo không tràn */
+      display: block;
+      line-height: 1.5;
     }
   </style>
 </head>
@@ -83,7 +94,10 @@
     <div class="section">
       <div class="label">Room ID</div>
       <div class="room-id" id="roomId">---</div>
-      <div class="hint">Player vào: <span id="playerUrl" class="player-link"></span></div>
+      <div class="hint">Player vào:</div>
+      <div class="player-link-box">
+        <span id="playerUrl" class="player-link"></span>
+      </div>
     </div>
     
     <div class="section">
@@ -94,7 +108,7 @@
     <div class="section">
       <div class="label">Keywords (mỗi dòng 1 từ)</div>
       <textarea id="keywordsInput" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta"></textarea>
-      <div class="hint">Chỉ sửa được khi đang IDLE</div>
+      <div class="hint">Nhấn Enter để xuống dòng · Chỉ sửa được khi đang IDLE</div>
     </div>
     
     <div class="section">
@@ -121,7 +135,6 @@
     const socket = io();
     let currentState = 'IDLE';
     
-    // Parse URL
     const pathParts = window.location.pathname.split('/');
     const roomId = pathParts[pathParts.length - 1];
     const urlParams = new URLSearchParams(window.location.search);
@@ -130,10 +143,8 @@
     document.getElementById('roomId').textContent = roomId;
     document.getElementById('playerUrl').textContent = `${window.location.origin}/room/${roomId}`;
     
-    // Join as host
     socket.emit('join-host', { roomId, token });
     
-    // Events
     socket.on('joined', (data) => {
       currentState = data.state;
       updateUI();
@@ -213,7 +224,6 @@
         alert('Vui lòng nhập ít nhất 1 keyword');
         return;
       }
-      // Cập nhật keywords trước khi start
       socket.emit('update-keywords', { roomId, keywords });
       socket.emit('start', { roomId });
     }
@@ -226,7 +236,6 @@
       socket.emit('reset', { roomId });
     }
     
-    // Auto-save keywords khi đang IDLE
     document.getElementById('keywordsInput').addEventListener('input', () => {
       if (currentState !== 'IDLE') return;
       const keywords = document.getElementById('keywordsInput').value
