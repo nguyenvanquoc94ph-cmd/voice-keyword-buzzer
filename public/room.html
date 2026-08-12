@@ -132,18 +132,21 @@
 
   <script src="/socket.io/socket.io.js"></script>
   <script>
+    // ===== FIX: Parse roomId an toàn =====
+    const pathParts = window.location.pathname.split('/').filter(p => p);
+    const roomId = pathParts[pathParts.length - 1] || 'UNKNOWN';
+    console.log('Room ID:', roomId, 'Path:', window.location.pathname);
+    
+    const langSelect = document.getElementById('langSelect');
+    document.getElementById('roomId').textContent = roomId;
+    
     const socket = io();
     let currentState = 'IDLE';
     let recognition = null;
     let isListening = false;
     let foundKeywords = new Set();
     let currentLang = 'en-US';
-    let lastSentText = ''; // Tránh gửi trùng lặp
-    
-    const pathParts = window.location.pathname.split('/');
-    const roomId = pathParts[pathParts.length - 1];
-    const langSelect = document.getElementById('langSelect');
-    document.getElementById('roomId').textContent = roomId;
+    let lastSentText = '';
     
     socket.emit('join-player', { roomId });
     
@@ -159,16 +162,13 @@
       rec.continuous = true;
       rec.interimResults = true;
       
-      // FIX: Gửi cả interim transcript — không đợi final
       rec.onresult = (event) => {
         const lastResult = event.results[event.results.length - 1];
         const transcript = lastResult[0].transcript;
         const text = transcript.trim();
         
-        // Hiển thị
         document.getElementById('transcript').textContent = (lastResult.isFinal ? '✓ ' : '🎧 ') + text;
         
-        // Gửi lên server ngay nếu text thay đổi
         if (text && text !== lastSentText) {
           lastSentText = text;
           socket.emit('speech-result', { roomId, transcript: text });
@@ -250,8 +250,10 @@
       }
     }
     
+    // ===== SOCKET EVENTS =====
     socket.on('joined', (data) => {
-      currentState = data.state;
+      console.log('Joined:', data);
+      currentState = data.state || 'IDLE';
       if (data.lang) { currentLang = data.lang; langSelect.value = data.lang; }
       updateUI();
     });
@@ -275,6 +277,7 @@
     });
     
     socket.on('keywords-updated', (keywords) => {
+      console.log('Keywords updated:', keywords);
       renderKeywords(keywords);
     });
     
@@ -313,6 +316,7 @@
     });
     
     socket.on('error-msg', (msg) => {
+      console.error('Server error:', msg);
       const el = document.getElementById('errorMsg');
       el.textContent = msg;
       setTimeout(() => el.textContent = '', 3000);
@@ -323,7 +327,7 @@
       const btn = document.getElementById('micBtn');
       
       if (currentState === 'IDLE') {
-        badge.textContent = ' 'Waiting for START...';
+        badge.textContent = 'Waiting for START...';
         badge.className = 'status IDLE';
         btn.disabled = true;
         langSelect.disabled = false;
