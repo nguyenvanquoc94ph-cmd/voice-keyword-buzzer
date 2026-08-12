@@ -116,7 +116,7 @@
       <button class="mic-btn inactive" id="micBtn" onclick="toggleMic()" disabled>
         🎤 Bật Microphone
       </button>
-      <div class="hint">Mic sẽ tự bật khi Host START</div>
+      <div class="hint">Mic sẽ tự bật khi Host START · Ghi nhận realtime</div>
       <div class="transcript" id="transcript" style="margin-top:12px;">
         Transcript sẽ hiển thị ở đây...
       </div>
@@ -138,6 +138,7 @@
     let isListening = false;
     let foundKeywords = new Set();
     let currentLang = 'en-US';
+    let lastSentText = ''; // Tránh gửi trùng lặp
     
     const pathParts = window.location.pathname.split('/');
     const roomId = pathParts[pathParts.length - 1];
@@ -154,30 +155,23 @@
       }
       
       const rec = new SpeechRecognition();
-      rec.lang = currentLang; // ⬅️ Dùng ngôn ngữ đã chọn
+      rec.lang = currentLang;
       rec.continuous = true;
       rec.interimResults = true;
       
+      // FIX: Gửi cả interim transcript — không đợi final
       rec.onresult = (event) => {
-        let finalTranscript = '';
-        let interimTranscript = '';
+        const lastResult = event.results[event.results.length - 1];
+        const transcript = lastResult[0].transcript;
+        const text = transcript.trim();
         
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-          } else {
-            interimTranscript += transcript;
-          }
-        }
+        // Hiển thị
+        document.getElementById('transcript').textContent = (lastResult.isFinal ? '✓ ' : '🎧 ') + text;
         
-        if (interimTranscript) {
-          document.getElementById('transcript').textContent = '🎧 ' + interimTranscript;
-        }
-        
-        if (finalTranscript) {
-          document.getElementById('transcript').textContent = '✓ ' + finalTranscript;
-          socket.emit('speech-result', { roomId, transcript: finalTranscript });
+        // Gửi lên server ngay nếu text thay đổi
+        if (text && text !== lastSentText) {
+          lastSentText = text;
+          socket.emit('speech-result', { roomId, transcript: text });
         }
       };
       
@@ -205,6 +199,7 @@
       if (isListening) return true;
       
       try {
+        lastSentText = '';
         recognition.start();
         isListening = true;
         updateMicBtn(true);
@@ -218,6 +213,7 @@
     function stopMic() {
       if (!recognition) return;
       isListening = false;
+      lastSentText = '';
       try { recognition.stop(); } catch(e) {}
       updateMicBtn(false);
     }
@@ -247,20 +243,16 @@
     
     function changeLang() {
       currentLang = langSelect.value;
-      // Nếu đang nghe, restart để áp dụng ngôn ngữ mới
       if (isListening && recognition) {
         stopMic();
-        recognition = null; // Tạo lại với lang mới
+        recognition = null;
         setTimeout(() => startMic(), 300);
       }
     }
     
     socket.on('joined', (data) => {
       currentState = data.state;
-      if (data.lang) {
-        currentLang = data.lang;
-        langSelect.value = data.lang;
-      }
+      if (data.lang) { currentLang = data.lang; langSelect.value = data.lang; }
       updateUI();
     });
     
@@ -331,7 +323,7 @@
       const btn = document.getElementById('micBtn');
       
       if (currentState === 'IDLE') {
-        badge.textContent = 'Waiting for START...';
+        badge.textContent = ' 'Waiting for START...';
         badge.className = 'status IDLE';
         btn.disabled = true;
         langSelect.disabled = false;
