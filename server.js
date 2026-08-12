@@ -12,7 +12,6 @@ const io = new Server(server, {
   pingInterval: 25000
 });
 
-// FIX: Không cache static files
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: 0,
   setHeaders: (res, path) => {
@@ -40,6 +39,7 @@ function createRoom() {
     id: roomId,
     hostToken: hostToken,
     state: 'IDLE',
+    lang: 'en-US', // mặc định tiếng Anh
     keywords: [],
     results: [],
     players: new Set(),
@@ -82,7 +82,7 @@ io.on('connection', (socket) => {
     socket.hostToken = token;
     socket.roomId = roomId;
     socket.join(roomId);
-    socket.emit('joined', { role: 'host', roomId, state: room.state });
+    socket.emit('joined', { role: 'host', roomId, state: room.state, lang: room.lang });
     socket.emit('keywords-updated', room.keywords);
     socket.emit('result-update', room.results);
   });
@@ -96,7 +96,7 @@ io.on('connection', (socket) => {
     socket.roomId = roomId;
     socket.join(roomId);
     room.players.add(socket.id);
-    socket.emit('joined', { role: 'player', roomId, state: room.state });
+    socket.emit('joined', { role: 'player', roomId, state: room.state, lang: room.lang });
     socket.emit('keywords-updated', room.keywords);
     if (room.state === 'STOPPED') {
       socket.emit('game-ended', room.results);
@@ -115,6 +115,20 @@ io.on('connection', (socket) => {
     }
     room.keywords = keywords.map(k => k.trim()).filter(k => k);
     io.to(roomId).emit('keywords-updated', room.keywords);
+  });
+
+  socket.on('update-lang', ({ roomId, lang }) => {
+    const room = rooms.get(roomId);
+    if (!room || !isHost(socket, room)) {
+      socket.emit('error-msg', 'Không có quyền đổi ngôn ngữ');
+      return;
+    }
+    if (room.state !== 'IDLE') {
+      socket.emit('error-msg', 'Chỉ đổi ngôn ngữ khi đang IDLE');
+      return;
+    }
+    room.lang = lang;
+    io.to(roomId).emit('lang-updated', lang);
   });
 
   socket.on('start', ({ roomId }) => {
@@ -162,23 +176,31 @@ io.on('connection', (socket) => {
   socket.on('speech-result', ({ roomId, transcript }) => {
     const room = rooms.get(roomId);
     if (!room || room.state !== 'STARTED') return;
+    if (!transcript) return;
+    
     const text = transcript.trim().toLowerCase();
-    if (!text) return;
+    console.log('🎤 Player transcript:', text);
+    
+    let foundAny = false;
+    
     for (const keyword of room.keywords) {
       const keyLower = keyword.toLowerCase();
-      if (text.includes(keyLower)) {
-        const alreadyFound = room.results.find(r => r.keyword.toLowerCase() === keyLower);
-        if (!alreadyFound) {
-          const entry = {
-            keyword: keyword,
-            timestamp: Date.now(),
-            order: room.results.length + 1
-          };
-          room.results.push(entry);
-          io.to(roomId).emit('result-update', room.results);
-        }
-        break;
+      const alreadyFound = room.results.find(r => r.keyword.toLowerCase() === keyLower);
+      
+      if (!alreadyFound && text.includes(keyLower)) {
+        const entry = {
+          keyword: keyword,
+          timestamp: Date.now(),
+          order: room.results.length + 1
+        };
+        room.results.push(entry);
+        foundAny = true;
+        console.log('✅ Found keyword:', keyword);
       }
+    }
+    
+    if (foundAny) {
+      io.to(roomId).emit('result-update', room.results);
     }
   });
 
