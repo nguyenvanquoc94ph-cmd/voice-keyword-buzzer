@@ -21,7 +21,6 @@
     .section:last-child { border-bottom: none; }
     .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8; margin-bottom: 8px; }
     .room-id { font-size: 32px; font-weight: 700; color: #fbbf24; letter-spacing: 0.1em; text-align: center; }
-    
     .status {
       display: inline-block; padding: 6px 16px; border-radius: 20px;
       font-size: 14px; font-weight: 600;
@@ -29,6 +28,12 @@
     .status.IDLE { background: #475569; color: #cbd5e1; }
     .status.STARTED { background: #16a34a; color: #fff; }
     .status.STOPPED { background: #dc2626; color: #fff; }
+    
+    select {
+      width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; color: #e2e8f0; font-size: 14px; cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #60a5fa; }
     
     .mic-btn {
       width: 100%; padding: 16px; border: none; border-radius: 12px;
@@ -53,7 +58,7 @@
     
     .transcript {
       background: #0f172a; border-radius: 8px; padding: 12px; min-height: 48px;
-      font-size: 14px; color: #94a3b8; font-style: italic;
+      font-size: 14px; color: #94a3b8; font-style: italic; margin-top: 12px;
     }
     
     .results { background: #0f172a; border-radius: 8px; padding: 16px; }
@@ -74,13 +79,6 @@
     
     .error { color: #f87171; font-size: 13px; margin-top: 8px; text-align: center; }
     .hint { color: #64748b; font-size: 12px; margin-top: 4px; text-align: center; }
-    
-    .auto-mic-hint {
-      background: #0f172a; border: 1px solid #16a34a; border-radius: 8px;
-      padding: 12px; margin-top: 12px; font-size: 13px; color: #86efac;
-      display: none;
-    }
-    .auto-mic-hint.show { display: block; }
   </style>
 </head>
 <body>
@@ -98,6 +96,16 @@
     </div>
     
     <div class="section">
+      <div class="label">Ngôn ngữ nhận diện</div>
+      <select id="langSelect" onchange="changeLang()">
+        <option value="en-US">🇺🇸 English (US)</option>
+        <option value="vi-VN">🇻🇳 Tiếng Việt</option>
+        <option value="en-GB">🇬🇧 English (UK)</option>
+      </select>
+      <div class="hint">Chọn theo cách bạn định đọc keyword</div>
+    </div>
+    
+    <div class="section">
       <div class="label">Keywords</div>
       <div class="keywords" id="keywordsList">
         <div style="color:#64748b; font-size:14px;">Đang chờ Host cấu hình...</div>
@@ -108,12 +116,9 @@
       <button class="mic-btn inactive" id="micBtn" onclick="toggleMic()" disabled>
         🎤 Bật Microphone
       </button>
-      <div class="hint">Mic chỉ hoạt động khi Host đã START</div>
+      <div class="hint">Mic sẽ tự bật khi Host START</div>
       <div class="transcript" id="transcript" style="margin-top:12px;">
         Transcript sẽ hiển thị ở đây...
-      </div>
-      <div class="auto-mic-hint" id="autoMicHint">
-        🎤 Mic đã tự động bật. Hãy hô keyword!
       </div>
     </div>
     
@@ -132,9 +137,11 @@
     let recognition = null;
     let isListening = false;
     let foundKeywords = new Set();
+    let currentLang = 'en-US';
     
     const pathParts = window.location.pathname.split('/');
     const roomId = pathParts[pathParts.length - 1];
+    const langSelect = document.getElementById('langSelect');
     document.getElementById('roomId').textContent = roomId;
     
     socket.emit('join-player', { roomId });
@@ -147,7 +154,7 @@
       }
       
       const rec = new SpeechRecognition();
-      rec.lang = 'vi-VN';
+      rec.lang = currentLang; // ⬅️ Dùng ngôn ngữ đã chọn
       rec.continuous = true;
       rec.interimResults = true;
       
@@ -195,6 +202,8 @@
         recognition = initSpeechRecognition();
         if (!recognition) return false;
       }
+      if (isListening) return true;
+      
       try {
         recognition.start();
         isListening = true;
@@ -236,14 +245,22 @@
       }
     }
     
-    function showAutoMicHint() {
-      const hint = document.getElementById('autoMicHint');
-      hint.classList.add('show');
-      setTimeout(() => hint.classList.remove('show'), 4000);
+    function changeLang() {
+      currentLang = langSelect.value;
+      // Nếu đang nghe, restart để áp dụng ngôn ngữ mới
+      if (isListening && recognition) {
+        stopMic();
+        recognition = null; // Tạo lại với lang mới
+        setTimeout(() => startMic(), 300);
+      }
     }
     
     socket.on('joined', (data) => {
       currentState = data.state;
+      if (data.lang) {
+        currentLang = data.lang;
+        langSelect.value = data.lang;
+      }
       updateUI();
     });
     
@@ -256,18 +273,22 @@
         document.getElementById('results').innerHTML = '';
         foundKeywords.clear();
         renderKeywords();
-        // Tự động bật mic
-        const success = startMic();
-        if (success) {
-          showAutoMicHint();
-        }
+        startMic();
       } else if (state === 'STOPPED') {
         stopMic();
+      } else if (state === 'IDLE') {
+        stopMic();
+        document.getElementById('resultsSection').style.display = 'none';
       }
     });
     
     socket.on('keywords-updated', (keywords) => {
       renderKeywords(keywords);
+    });
+    
+    socket.on('lang-updated', (lang) => {
+      currentLang = lang;
+      langSelect.value = lang;
     });
     
     socket.on('result-update', (results) => {
@@ -313,16 +334,17 @@
         badge.textContent = 'Waiting for START...';
         badge.className = 'status IDLE';
         btn.disabled = true;
-        stopMic();
+        langSelect.disabled = false;
       } else if (currentState === 'STARTED') {
         badge.textContent = 'Listening...';
         badge.className = 'status STARTED';
         btn.disabled = false;
+        langSelect.disabled = true;
       } else if (currentState === 'STOPPED') {
         badge.textContent = 'Game Ended';
         badge.className = 'status STOPPED';
         btn.disabled = true;
-        stopMic();
+        langSelect.disabled = false;
       }
     }
     
