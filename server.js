@@ -39,7 +39,7 @@ function createRoom() {
     id: roomId,
     hostToken: hostToken,
     state: 'IDLE',
-    lang: 'en-US', // mặc định tiếng Anh
+    lang: 'en-US',
     keywords: [],
     results: [],
     players: new Set(),
@@ -71,14 +71,8 @@ io.on('connection', (socket) => {
 
   socket.on('join-host', ({ roomId, token }) => {
     const room = rooms.get(roomId);
-    if (!room) {
-      socket.emit('error-msg', 'Room không tồn tại');
-      return;
-    }
-    if (room.hostToken !== token) {
-      socket.emit('error-msg', 'Host token không hợp lệ');
-      return;
-    }
+    if (!room) { socket.emit('error-msg', 'Room không tồn tại'); return; }
+    if (room.hostToken !== token) { socket.emit('error-msg', 'Host token không hợp lệ'); return; }
     socket.hostToken = token;
     socket.roomId = roomId;
     socket.join(roomId);
@@ -89,58 +83,35 @@ io.on('connection', (socket) => {
 
   socket.on('join-player', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room) {
-      socket.emit('error-msg', 'Room không tồn tại');
-      return;
-    }
+    if (!room) { socket.emit('error-msg', 'Room không tồn tại'); return; }
     socket.roomId = roomId;
     socket.join(roomId);
     room.players.add(socket.id);
     socket.emit('joined', { role: 'player', roomId, state: room.state, lang: room.lang });
     socket.emit('keywords-updated', room.keywords);
-    if (room.state === 'STOPPED') {
-      socket.emit('game-ended', room.results);
-    }
+    if (room.state === 'STOPPED') socket.emit('game-ended', room.results);
   });
 
   socket.on('update-keywords', ({ roomId, keywords }) => {
     const room = rooms.get(roomId);
-    if (!room || !isHost(socket, room)) {
-      socket.emit('error-msg', 'Không có quyền cập nhật keyword');
-      return;
-    }
-    if (room.state !== 'IDLE') {
-      socket.emit('error-msg', 'Chỉ được sửa keyword khi đang IDLE');
-      return;
-    }
+    if (!room || !isHost(socket, room)) { socket.emit('error-msg', 'Không có quyền'); return; }
+    if (room.state !== 'IDLE') { socket.emit('error-msg', 'Chỉ sửa khi IDLE'); return; }
     room.keywords = keywords.map(k => k.trim()).filter(k => k);
     io.to(roomId).emit('keywords-updated', room.keywords);
   });
 
   socket.on('update-lang', ({ roomId, lang }) => {
     const room = rooms.get(roomId);
-    if (!room || !isHost(socket, room)) {
-      socket.emit('error-msg', 'Không có quyền đổi ngôn ngữ');
-      return;
-    }
-    if (room.state !== 'IDLE') {
-      socket.emit('error-msg', 'Chỉ đổi ngôn ngữ khi đang IDLE');
-      return;
-    }
+    if (!room || !isHost(socket, room)) { socket.emit('error-msg', 'Không có quyền'); return; }
+    if (room.state !== 'IDLE') { socket.emit('error-msg', 'Chỉ đổi khi IDLE'); return; }
     room.lang = lang;
     io.to(roomId).emit('lang-updated', lang);
   });
 
   socket.on('start', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room || !isHost(socket, room)) {
-      socket.emit('error-msg', 'Không có quyền START');
-      return;
-    }
-    if (room.state !== 'IDLE') {
-      socket.emit('error-msg', 'Chỉ START được khi đang IDLE');
-      return;
-    }
+    if (!room || !isHost(socket, room)) { socket.emit('error-msg', 'Không có quyền START'); return; }
+    if (room.state !== 'IDLE') { socket.emit('error-msg', 'Chỉ START khi IDLE'); return; }
     room.state = 'STARTED';
     room.results = [];
     io.to(roomId).emit('state-changed', 'STARTED');
@@ -148,14 +119,8 @@ io.on('connection', (socket) => {
 
   socket.on('stop', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room || !isHost(socket, room)) {
-      socket.emit('error-msg', 'Không có quyền STOP');
-      return;
-    }
-    if (room.state !== 'STARTED') {
-      socket.emit('error-msg', 'Chỉ STOP được khi đang STARTED');
-      return;
-    }
+    if (!room || !isHost(socket, room)) { socket.emit('error-msg', 'Không có quyền STOP'); return; }
+    if (room.state !== 'STARTED') { socket.emit('error-msg', 'Chỉ STOP khi STARTED'); return; }
     room.state = 'STOPPED';
     io.to(roomId).emit('state-changed', 'STOPPED');
     io.to(roomId).emit('game-ended', room.results);
@@ -163,43 +128,44 @@ io.on('connection', (socket) => {
 
   socket.on('reset', ({ roomId }) => {
     const room = rooms.get(roomId);
-    if (!room || !isHost(socket, room)) {
-      socket.emit('error-msg', 'Không có quyền RESET');
-      return;
-    }
+    if (!room || !isHost(socket, room)) { socket.emit('error-msg', 'Không có quyền RESET'); return; }
     room.state = 'IDLE';
     room.results = [];
     io.to(roomId).emit('state-changed', 'IDLE');
     io.to(roomId).emit('result-update', []);
   });
 
+  // FIX: Chỉ ghi nhận keyword đầu tiên tìm thấy trong transcript, theo thứ tự xuất hiện
   socket.on('speech-result', ({ roomId, transcript }) => {
     const room = rooms.get(roomId);
     if (!room || room.state !== 'STARTED') return;
     if (!transcript) return;
     
     const text = transcript.trim().toLowerCase();
-    console.log('🎤 Player transcript:', text);
     
-    let foundAny = false;
+    // Tìm keyword đầu tiên xuất hiện trong text (theo index nhỏ nhất), chưa được ghi nhận
+    let firstMatch = null;
+    let firstIndex = Infinity;
     
     for (const keyword of room.keywords) {
       const keyLower = keyword.toLowerCase();
       const alreadyFound = room.results.find(r => r.keyword.toLowerCase() === keyLower);
+      if (alreadyFound) continue;
       
-      if (!alreadyFound && text.includes(keyLower)) {
-        const entry = {
-          keyword: keyword,
-          timestamp: Date.now(),
-          order: room.results.length + 1
-        };
-        room.results.push(entry);
-        foundAny = true;
-        console.log('✅ Found keyword:', keyword);
+      const idx = text.indexOf(keyLower);
+      if (idx !== -1 && idx < firstIndex) {
+        firstIndex = idx;
+        firstMatch = keyword;
       }
     }
     
-    if (foundAny) {
+    if (firstMatch) {
+      const entry = {
+        keyword: firstMatch,
+        timestamp: Date.now(),
+        order: room.results.length + 1
+      };
+      room.results.push(entry); // Giữ nguyên thứ tự push
       io.to(roomId).emit('result-update', room.results);
     }
   });
@@ -207,9 +173,7 @@ io.on('connection', (socket) => {
   socket.on('disconnect', () => {
     if (socket.roomId) {
       const room = rooms.get(socket.roomId);
-      if (room) {
-        room.players.delete(socket.id);
-      }
+      if (room) room.players.delete(socket.id);
     }
     console.log('Client disconnected:', socket.id);
   });
