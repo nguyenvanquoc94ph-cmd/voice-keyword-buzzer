@@ -29,6 +29,12 @@
     .status.STARTED { background: #16a34a; color: #fff; }
     .status.STOPPED { background: #dc2626; color: #fff; }
     
+    select {
+      width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid #334155;
+      border-radius: 8px; color: #e2e8f0; font-size: 14px; cursor: pointer;
+    }
+    select:focus { outline: none; border-color: #60a5fa; }
+    
     textarea {
       width: 100%; height: 120px; background: #0f172a; border: 1px solid #334155;
       border-radius: 8px; padding: 12px; color: #e2e8f0; font-size: 14px; resize: vertical;
@@ -105,9 +111,19 @@
     </div>
     
     <div class="section">
+      <div class="label">Ngôn ngữ nhận diện</div>
+      <select id="langSelect" onchange="changeLang()">
+        <option value="en-US">🇺🇸 English (US)</option>
+        <option value="vi-VN">🇻🇳 Tiếng Việt</option>
+        <option value="en-GB">🇬🇧 English (UK)</option>
+      </select>
+      <div class="hint">Chọn theo cách Player sẽ đọc keyword</div>
+    </div>
+    
+    <div class="section">
       <div class="label">Keywords (mỗi dòng 1 từ)</div>
       <textarea id="keywordsInput" placeholder="Alpha&#10;Bravo&#10;Charlie&#10;Delta" spellcheck="false"></textarea>
-      <div class="hint">Nhấn Enter để xuống dòng · Chỉ sửa được khi đang IDLE</div>
+      <div class="hint">Nhấn Enter để xuống dòng · Click ra ngoài để lưu</div>
     </div>
     
     <div class="section">
@@ -139,6 +155,8 @@
     const roomId = pathParts[pathParts.length - 1];
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get('token');
+    const kwInput = document.getElementById('keywordsInput');
+    const langSelect = document.getElementById('langSelect');
     
     document.getElementById('roomId').textContent = roomId;
     playerUrl = window.location.origin + '/room/' + roomId;
@@ -154,7 +172,6 @@
           btn.classList.remove('copied');
         }, 2000);
       }).catch(() => {
-        // Fallback cho trình duyệt cũ
         const ta = document.createElement('textarea');
         ta.value = playerUrl;
         document.body.appendChild(ta);
@@ -167,10 +184,15 @@
       });
     }
     
+    function changeLang() {
+      socket.emit('update-lang', { roomId, lang: langSelect.value });
+    }
+    
     socket.emit('join-host', { roomId, token });
     
     socket.on('joined', (data) => {
       currentState = data.state;
+      if (data.lang) langSelect.value = data.lang;
       updateUI();
     });
     
@@ -180,7 +202,13 @@
     });
     
     socket.on('keywords-updated', (keywords) => {
-      document.getElementById('keywordsInput').value = keywords.join('\n');
+      if (document.activeElement !== kwInput) {
+        kwInput.value = keywords.join('\n');
+      }
+    });
+    
+    socket.on('lang-updated', (lang) => {
+      langSelect.value = lang;
     });
     
     socket.on('result-update', (results) => {
@@ -197,6 +225,12 @@
       setTimeout(() => el.textContent = '', 3000);
     });
     
+    kwInput.addEventListener('blur', () => {
+      if (currentState !== 'IDLE') return;
+      const keywords = kwInput.value.split('\n').map(k => k.trim()).filter(k => k);
+      socket.emit('update-keywords', { roomId, keywords });
+    });
+    
     function updateUI() {
       const badge = document.getElementById('statusBadge');
       badge.textContent = currentState;
@@ -204,20 +238,22 @@
       
       const btnStart = document.getElementById('btnStart');
       const btnStop = document.getElementById('btnStop');
-      const input = document.getElementById('keywordsInput');
       
       if (currentState === 'IDLE') {
         btnStart.disabled = false;
         btnStop.disabled = true;
-        input.disabled = false;
+        kwInput.disabled = false;
+        langSelect.disabled = false;
       } else if (currentState === 'STARTED') {
         btnStart.disabled = true;
         btnStop.disabled = false;
-        input.disabled = true;
+        kwInput.disabled = true;
+        langSelect.disabled = true;
       } else if (currentState === 'STOPPED') {
         btnStart.disabled = true;
         btnStop.disabled = true;
-        input.disabled = true;
+        kwInput.disabled = true;
+        langSelect.disabled = true;
       }
     }
     
@@ -242,8 +278,7 @@
     }
     
     function startGame() {
-      const keywords = document.getElementById('keywordsInput').value
-        .split('\n').map(k => k.trim()).filter(k => k);
+      const keywords = kwInput.value.split('\n').map(k => k.trim()).filter(k => k);
       if (keywords.length === 0) {
         alert('Vui lòng nhập ít nhất 1 keyword');
         return;
@@ -259,13 +294,6 @@
     function resetGame() {
       socket.emit('reset', { roomId });
     }
-    
-    document.getElementById('keywordsInput').addEventListener('input', () => {
-      if (currentState !== 'IDLE') return;
-      const keywords = document.getElementById('keywordsInput').value
-        .split('\n').map(k => k.trim()).filter(k => k);
-      socket.emit('update-keywords', { roomId, keywords });
-    });
   </script>
 </body>
 </html>
